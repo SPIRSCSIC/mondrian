@@ -1,126 +1,161 @@
-#include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>
-#include "dataframe.h"
+#include <stdlib.h>
+#include <limits.h>
+#include <math.h>
 
-/* Function to calculate the range of a column in a dataframe */
-void dataframe_column_range(DataFrame* df, int col, int* min, int* max) {
-    *min = *(int*)dataframe_get(df, 0, col);
-    *max = *(int*)dataframe_get(df, 0, col);
-    for (int i = 1; i < dataframe_num_rows(df); i++) {
-        int val = *(int*)dataframe_get(df, i, col);
-        if (val < *min) {
-            *min = val;
-        }
-        if (val > *max) {
-            *max = val;
-        }
-    }
+int compare(const void *a, const void *b) {
+    int f_a = *((int*)a);
+    int f_b = *((int*)b);
+
+    return f_a - f_b;
 }
 
-/* Function to calculate the width of a partition */
-int partition_width(DataFrame* df, int col, int partition_start, int partition_end) {
-    int partition_min, partition_max;
-    dataframe_column_range(df, col, &partition_min, &partition_max);
-    for (int i = partition_start; i < partition_end; i++) {
-        int val = *(int*)dataframe_get(df, i, col);
-        if (val < partition_min) {
-            partition_min = val;
-        }
-        if (val > partition_max) {
-            partition_max = val;
-        }
+void anonymized_partition(int **data, int size, int num_attributes) {
+  int* min_vals = malloc(sizeof(int*) * num_attributes);
+  int* max_vals = malloc(sizeof(int*) * num_attributes);
+  for(int i = 0; i < num_attributes; i++) {
+    min_vals[i] = INT_MAX;
+    max_vals[i] = INT_MIN;
+  }
+  for(int i = 0; i < num_attributes; i++){
+    for(int j = 0; j < size; j++) {
+      if (data[j][i] < min_vals[i]) min_vals[i] = data[j][i];
+      if (data[j][i] > max_vals[i]) max_vals[i] = data[j][i];
     }
-    return partition_max - partition_min;
+  }
+  for(int i = 0; i < size; i++) {
+    for(int j = 0; j < num_attributes; j++) {
+      if(min_vals[j] == max_vals[j]){
+        printf("%d ", data[i][j]);
+      }
+      else {
+        printf("[%d, %d] ", min_vals[j], max_vals[j]);
+      }
+    }
+    printf("\n");
+  }
 }
 
-/* Function to find the column with the largest partition */
-int find_largest_partition(DataFrame* df, int* partition_start, int* partition_end) {
-    int largest_partition_width = -1;
-    int largest_partition_col = -1;
-    for (int col = 0; col < dataframe_num_cols(df); col++) {
-        for (int i = 0; i < dataframe_num_rows(df); i++) {
-            int j = i + 1;
-            while (j < dataframe_num_rows(df) && *(int*)dataframe_get(df, j, col) == *(int*)dataframe_get(df, i, col)) {
-                j++;
-            }
-            int partition_width = partition_width(df, col, i, j);
-            if (partition_width > largest_partition_width) {
-                largest_partition_width = partition_width;
-                largest_partition_col = col;
-                *partition_start = i;
-                *partition_end = j;
-            }
-            i = j - 1;
+void find_largest_range(int **data, int size, int num_attributes, int *attribute_idx, int *range) {
+    int max_range = INT_MIN;
+    *attribute_idx = -1;
+
+    for (int attr = 0; attr < num_attributes; attr++) {
+        int min = INT_MAX;
+        int max = INT_MIN;
+
+        for (int i = 0; i < size; i++) {
+            if (data[i][attr] < min) min = data[i][attr];
+            if (data[i][attr] > max) max = data[i][attr];
+        }
+
+        int current_range = max - min;
+        if (current_range > max_range) {
+            max_range = current_range;
+            *attribute_idx = attr;
         }
     }
-    return largest_partition_col;
+
+    *range = max_range;
 }
 
-/* Function to check if a dataframe satisfies k-anonymity */
-bool is_k_anonymous(DataFrame* df, int k) {
-    for (int i = 0; i < dataframe_num_rows(df); i++) {
-        int count = 0;
-        for (int j = 0; j < dataframe_num_rows(df); j++) {
-            bool match = true;
-            for (int col = 0; col < dataframe_num_cols(df); col++) {
-                if (*(int*)dataframe_get(df, i, col) != *(int*)dataframe_get(df, j, col)) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                count++;
-            }
-        }
-        if (count < k) {
-            return false;
-        }
+void mondrian(int **data, int num_attributes, int k, int size) {
+    if (size < 2*k) {
+        anonymized_partition(data, size, num_attributes);
+        return;
     }
-    return true;
+
+    int attribute_idx;
+    int range;
+    find_largest_range(data, size, num_attributes, &attribute_idx, &range);
+
+    if (attribute_idx == -1) {
+        return;
+    }
+
+    int allowable_cut = 0;
+    int iterator = 0;
+    int l_size;
+    int r_size = 0;
+    int median;
+    while(!allowable_cut) {
+      int *values = (int *)malloc(size * sizeof(int));
+      for (int i = 0; i < size; i++) {
+        values[i] = data[i][(attribute_idx + iterator) % num_attributes];
+      }
+
+      qsort(values, size, sizeof(int), compare);
+      median = values[size / 2];
+      // printf("Cut by: %d, %d\n", (attribute_idx + iterator) % num_attributes, median);
+      free(values);
+
+      r_size = 0;
+
+      for (int i = 0; i < size; i++) {
+        if(data[i][(attribute_idx + iterator) % num_attributes] >= median) {
+          r_size += 1;
+        }
+      }
+      l_size = size - r_size;
+      if(r_size == size || l_size == size || r_size < k || l_size < k) {
+        iterator += 1;
+        if(iterator == num_attributes) {
+          anonymized_partition(data, size, num_attributes);
+          return;
+        }
+        continue;
+      }
+      allowable_cut = 1;
+      attribute_idx = (attribute_idx + iterator) % num_attributes;
+    }
+    int** r_part = (int**)malloc(sizeof(int*)*r_size);
+    int** l_part = (int**)malloc(sizeof(int*)*l_size);
+    int r_count = 0;
+    int l_count = 0;
+    for (int i = 0; i < size; i++) {
+      if(data[i][attribute_idx] >= median) {
+        r_part[r_count] = data[i];
+        r_count++;
+      }
+      else {
+        l_part[l_count] = data[i];
+        l_count++;
+      }
+    }
+
+    mondrian(r_part, num_attributes, k, r_size);
+    mondrian(l_part, num_attributes, k, l_size);
 }
 
-/* Function to apply the Mondrian algorithm to a dataframe to achieve k-anonymity */
-void mondrian(DataFrame* df, int k) {
-    while (!is_k_anonymous(df, k)) {
-        int partition_start, partition_end;
-        int col = find_largest_partition(df, &partition_start, &partition_end);
-        if (col == -1) {
-            fprintf(stderr, "Error: could not find largest partition\n");
-            return;
-        }
-        int num_rows = dataframe_num_rows(df);
-        int* indices = malloc(num_rows * sizeof(int));
-        for (int i = 0; i < num_rows; i++) {
-            indices[i] = i;
-        }
-        for (int i = 0; i < num_rows; i++) {
-            int j = i + 1;
-            while (j < num_rows && *(int*)dataframe_get(df, indices[j], col) == *(int*)dataframe_get(df, indices[i], col)) {
-                j++;
-            }
-            int partition_width = partition_width(df, col, i, j);
-            if (partition_width > 0) {
-                int partition_size = j - i;
-                if (partition_size > k) {
-                    int split_index = i + (partition_size / 2);
-                    int split_val = *(int*)dataframe_get(df, indices[split_index], col);
-                    while (split_index < j && *(int*)dataframe_get(df, indices[split_index], col) == split_val) {
-                        split_index++;
-                    }
-                    if (split_index < j) {
-                        partition_end = split_index;
-                    } else {
-                        partition_end = j - 1;
-                    }
-                } else {
-                    partition_end = j - 1;
-                }
-                for (int k = i; k <= partition_end; k++) {
-                    indices[k] |= (1 << col);
-                }
-                i = partition_end;
-            }
-        }
+int main() {
+    int num_records = 10;
+    int num_attributes = 3;
+    int k = 2;
+
+    int **data = (int**)malloc(num_records * sizeof(int*));
+    for (int i = 0; i < num_records; i++) {
+        data[i] = (int*)malloc(num_attributes * sizeof(int));
     }
+
+    // Example dataset
+    data[0][0] = 34; data[0][1] = 12; data[0][2] = 1;
+    data[1][0] = 20; data[1][1] = 9;  data[1][2] = 5;
+    data[2][0] = 25; data[2][1] = 7;  data[2][2] = 3;
+    data[3][0] = 50; data[3][1] = 15; data[3][2] = 6;
+    data[4][0] = 55; data[4][1] = 20; data[4][2] = 7;
+    data[5][0] = 40; data[5][1] = 12; data[5][2] = 2;
+    data[6][0] = 30; data[6][1] = 10; data[6][2] = 4;
+    data[7][0] = 45; data[7][1] = 18; data[7][2] = 6;
+    data[8][0] = 60; data[8][1] = 22; data[8][2] = 8;
+    data[9][0] = 15; data[9][1] = 5;  data[9][2] = 3;
+
+    mondrian(data, num_attributes, k, num_records);
+
+    // Free the memory allocated for the data array
+    for (int i = 0; i < num_records; i++) {
+        free(data[i]);
+    }
+    free(data);
+
+    return 0;
 }
