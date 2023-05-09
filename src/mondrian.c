@@ -203,7 +203,7 @@ void fill_dataset(struct config cfg, int **data) {
 
   fp = fopen(cfg.dataset_path, "r");
 
-  while (!feof(fp)) {
+  while (!feof(fp) && idx_row < cfg.n_records) {
     idx_token = 0;
     fgets(row, MAX_ROW, fp);
     /* printf("Row: %s", row); */
