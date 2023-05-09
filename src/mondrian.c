@@ -6,16 +6,19 @@
 #include <string.h>
 #include <unistd.h>
 
+int MAX_ROW = 1024;
 int DEFAULT_REC = 10;
 int DEFAULT_ATT = 3;
 int DEFAULT_K = 2;
+char *DEFAULT_DATA = "../datasets/dataset.csv";
 char *DEFAULT_MAP = "map.json";
 
 struct config {
   int n_records;
   int n_attributes;
   int k;
-  char *file_path;
+  char *dataset_path;
+  char *map_path;
 };
 
 int compare(const void *a, const void *b) {
@@ -32,46 +35,46 @@ void anonymized_partition(struct config cfg, int **data) {
     min_vals[i] = INT_MAX;
     max_vals[i] = INT_MIN;
   }
-  for (int i = 0; i < cfg.n_attributes; i++) {
-    for (int j = 0; j < cfg.n_records; j++) {
-      if (data[j][i] < min_vals[i])
-        min_vals[i] = data[j][i];
-      if (data[j][i] > max_vals[i])
-        max_vals[i] = data[j][i];
+  for (int idx_attr = 0; idx_attr < cfg.n_attributes; idx_attr++) {
+    for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+      if (data[idx_rec][idx_attr] < min_vals[idx_attr])
+        min_vals[idx_attr] = data[idx_rec][idx_attr];
+      if (data[idx_rec][idx_attr] > max_vals[idx_attr])
+        max_vals[idx_attr] = data[idx_rec][idx_attr];
     }
   }
-  for (int i = 0; i < cfg.n_records; i++) {
-    for (int j = 0; j < cfg.n_attributes; j++) {
-      if (min_vals[j] == max_vals[j]) {
-        printf("%d ", data[i][j]);
+  for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+    for (int idx_attr = 0; idx_attr < cfg.n_attributes; idx_attr++) {
+      if (min_vals[idx_attr] == max_vals[idx_attr]) {
+        printf("%d ", data[idx_rec][idx_attr]);
       } else {
-        printf("[%d, %d] ", min_vals[j], max_vals[j]);
+        printf("[%d, %d] ", min_vals[idx_attr], max_vals[idx_attr]);
       }
     }
     printf("\n");
   }
 }
 
-void find_largest_range(struct config cfg, int **data, int *attribute_idx,
+void find_largest_range(struct config cfg, int **data, int *index_attr,
                         int *range) {
   int max_range = INT_MIN;
-  *attribute_idx = -1;
+  *index_attr = -1;
 
-  for (int attr = 0; attr < cfg.n_attributes; attr++) {
+  for (int idx_attr = 0; idx_attr < cfg.n_attributes; idx_attr++) {
     int min = INT_MAX;
     int max = INT_MIN;
 
-    for (int i = 0; i < cfg.n_records; i++) {
-      if (data[i][attr] < min)
-        min = data[i][attr];
-      if (data[i][attr] > max)
-        max = data[i][attr];
+    for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+      if (data[idx_rec][idx_attr] < min)
+        min = data[idx_rec][idx_attr];
+      if (data[idx_rec][idx_attr] > max)
+        max = data[idx_rec][idx_attr];
     }
 
     int current_range = max - min;
     if (current_range > max_range) {
       max_range = current_range;
-      *attribute_idx = attr;
+      *index_attr = idx_attr;
     }
   }
 
@@ -84,11 +87,11 @@ void mondrian(struct config cfg, int **data) {
     return;
   }
 
-  int attribute_idx;
+  int index_attr;
   int range;
-  find_largest_range(cfg, data, &attribute_idx, &range);
+  find_largest_range(cfg, data, &index_attr, &range);
 
-  if (attribute_idx == -1) {
+  if (index_attr == -1) {
     return;
   }
 
@@ -99,8 +102,9 @@ void mondrian(struct config cfg, int **data) {
   int median;
   while (!allowable_cut) {
     int *values = (int *)malloc(cfg.n_records * sizeof(int));
-    for (int i = 0; i < cfg.n_records; i++) {
-      values[i] = data[i][(attribute_idx + iterator) % cfg.n_attributes];
+    for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+      values[idx_rec] =
+          data[idx_rec][(index_attr + iterator) % cfg.n_attributes];
     }
 
     qsort(values, cfg.n_records, sizeof(int), compare);
@@ -111,8 +115,8 @@ void mondrian(struct config cfg, int **data) {
 
     r_size = 0;
 
-    for (int i = 0; i < cfg.n_records; i++) {
-      if (data[i][(attribute_idx + iterator) % cfg.n_attributes] >= median) {
+    for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+      if (data[idx_rec][(index_attr + iterator) % cfg.n_attributes] >= median) {
         r_size += 1;
       }
     }
@@ -127,31 +131,34 @@ void mondrian(struct config cfg, int **data) {
       continue;
     }
     allowable_cut = 1;
-    attribute_idx = (attribute_idx + iterator) % cfg.n_attributes;
+    index_attr = (index_attr + iterator) % cfg.n_attributes;
   }
   int **r_part = (int **)malloc(sizeof(int *) * r_size);
   int **l_part = (int **)malloc(sizeof(int *) * l_size);
   int r_count = 0;
   int l_count = 0;
-  for (int i = 0; i < cfg.n_records; i++) {
-    if (data[i][attribute_idx] >= median) {
-      r_part[r_count] = data[i];
+  for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+    if (data[idx_rec][index_attr] >= median) {
+      r_part[r_count] = data[idx_rec];
       r_count++;
     } else {
-      l_part[l_count] = data[i];
+      l_part[l_count] = data[idx_rec];
       l_count++;
     }
   }
 
-  struct config r_cfg = {r_size, cfg.n_attributes, cfg.k, cfg.file_path};
-  struct config l_cfg = {l_size, cfg.n_attributes, cfg.k, cfg.file_path};
+  struct config r_cfg = {r_size, cfg.n_attributes, cfg.k, cfg.dataset_path,
+                         cfg.map_path};
+  struct config l_cfg = {l_size, cfg.n_attributes, cfg.k, cfg.dataset_path,
+                         cfg.map_path};
 
   mondrian(r_cfg, r_part);
   mondrian(l_cfg, l_part);
 }
 
 struct config parse_args(int argc, char **argv) {
-  struct config args = {DEFAULT_REC, DEFAULT_ATT, DEFAULT_K, DEFAULT_MAP};
+  struct config args = {DEFAULT_REC, DEFAULT_ATT, DEFAULT_K, DEFAULT_DATA,
+                        DEFAULT_MAP};
   int c;
   while ((c = getopt(argc, argv, ":k:r:a:f:")) != -1) {
     switch (c) {
@@ -164,8 +171,11 @@ struct config parse_args(int argc, char **argv) {
     case 'a': // n_attributes
       args.n_attributes = atoi(optarg);
       break;
-    case 'f': // file
-      args.file_path = optarg;
+    case 'd': // dataset path
+      args.map_path = optarg;
+      break;
+    case 'm': // map path
+      args.map_path = optarg;
       break;
     case '?':
       fprintf(stderr,
@@ -184,45 +194,60 @@ struct config parse_args(int argc, char **argv) {
   return args;
 }
 
+void fill_dataset(struct config cfg, int **data) {
+  FILE *fp;
+  char row[MAX_ROW];
+  char *token;
+  int idx_row = 0;
+  int idx_token = 0;
+
+  fp = fopen(cfg.dataset_path, "r");
+
+  while (!feof(fp)) {
+    idx_token = 0;
+    fgets(row, MAX_ROW, fp);
+    /* printf("Row: %s", row); */
+
+    token = strtok(row, ",");
+    while (token != NULL) {
+      if (*token == 10) { // newline
+        fprintf(stderr,
+                "Error: Invalid dataset. "
+                "Unfinished line %d. "
+                "Unexpected termination token.",
+                idx_row);
+        exit(1);
+      }
+      data[idx_row][idx_token] = atoi(token);
+      /* printf("Token: %s\n", token); */
+      token = strtok(NULL, ",");
+      idx_token++;
+    }
+    if (idx_token != cfg.n_attributes) {
+      fprintf(stderr, "Error: Invalid dataset. "
+                      "Number of tokens per row do not "
+                      "coincide with n_attributes.");
+      exit(1);
+    }
+    idx_row++;
+  }
+  if (idx_row != cfg.n_records) {
+    fprintf(stderr, "Error: Invalid dataset. "
+                    "Number of rows do not "
+                    "coincide with n_records.");
+    exit(1);
+  }
+}
+
 int main(int argc, char **argv) {
   struct config cfg = parse_args(argc, argv);
 
   int **data = (int **)malloc(cfg.n_records * sizeof(int *));
-  for (int i = 0; i < cfg.n_records; i++) {
-    data[i] = (int *)malloc(cfg.n_attributes * sizeof(int));
+  for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
+    data[idx_rec] = (int *)malloc(cfg.n_attributes * sizeof(int));
   }
 
-  // Example dataset
-  data[0][0] = 34;
-  data[0][1] = 12;
-  data[0][2] = 1;
-  data[1][0] = 20;
-  data[1][1] = 9;
-  data[1][2] = 5;
-  data[2][0] = 25;
-  data[2][1] = 7;
-  data[2][2] = 3;
-  data[3][0] = 50;
-  data[3][1] = 15;
-  data[3][2] = 6;
-  data[4][0] = 55;
-  data[4][1] = 20;
-  data[4][2] = 7;
-  data[5][0] = 40;
-  data[5][1] = 12;
-  data[5][2] = 2;
-  data[6][0] = 30;
-  data[6][1] = 10;
-  data[6][2] = 4;
-  data[7][0] = 45;
-  data[7][1] = 18;
-  data[7][2] = 6;
-  data[8][0] = 60;
-  data[8][1] = 22;
-  data[8][2] = 8;
-  data[9][0] = 15;
-  data[9][1] = 5;
-  data[9][2] = 3;
+  fill_dataset(cfg, data);
 
   // cfg.n_attributes, cfg.k, cfg.n_records
   mondrian(cfg, data);
