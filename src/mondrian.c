@@ -21,6 +21,11 @@ struct config {
   char *map_path;
 };
 
+struct range {
+  int index;
+  int max;
+};
+
 int compare(const void *a, const void *b) {
   int f_a = *((int *)a);
   int f_b = *((int *)b);
@@ -46,7 +51,7 @@ void anonymized_partition(struct config cfg, int **data) {
   for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
     for (int idx_attr = 0; idx_attr < cfg.n_attributes; idx_attr++) {
       if (min_vals[idx_attr] == max_vals[idx_attr]) {
-        printf("%d ", data[idx_rec][idx_attr]);
+        printf("[%d]", data[idx_rec][idx_attr]);
       } else {
         printf("[%d, %d] ", min_vals[idx_attr], max_vals[idx_attr]);
       }
@@ -55,10 +60,8 @@ void anonymized_partition(struct config cfg, int **data) {
   }
 }
 
-void find_largest_range(struct config cfg, int **data, int *index_attr,
-                        int *range) {
-  int max_range = INT_MIN;
-  *index_attr = -1;
+struct range find_largest_range(struct config cfg, int **data) {
+  struct range rng = {-1, INT_MIN};
 
   for (int idx_attr = 0; idx_attr < cfg.n_attributes; idx_attr++) {
     int min = INT_MAX;
@@ -72,13 +75,12 @@ void find_largest_range(struct config cfg, int **data, int *index_attr,
     }
 
     int current_range = max - min;
-    if (current_range > max_range) {
-      max_range = current_range;
-      *index_attr = idx_attr;
+    if (current_range > rng.max) {
+      rng.max = current_range;
+      rng.index = idx_attr;
     }
   }
-
-  *range = max_range;
+  return rng;
 }
 
 void mondrian(struct config cfg, int **data) {
@@ -87,11 +89,9 @@ void mondrian(struct config cfg, int **data) {
     return;
   }
 
-  int index_attr;
-  int range;
-  find_largest_range(cfg, data, &index_attr, &range);
+  struct range rng = find_largest_range(cfg, data);
 
-  if (index_attr == -1) {
+  if (rng.index == -1) {
     return;
   }
 
@@ -104,7 +104,7 @@ void mondrian(struct config cfg, int **data) {
     int *values = (int *)malloc(cfg.n_records * sizeof(int));
     for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
       values[idx_rec] =
-          data[idx_rec][(index_attr + iterator) % cfg.n_attributes];
+          data[idx_rec][(rng.index + iterator) % cfg.n_attributes];
     }
 
     qsort(values, cfg.n_records, sizeof(int), compare);
@@ -116,7 +116,7 @@ void mondrian(struct config cfg, int **data) {
     r_size = 0;
 
     for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
-      if (data[idx_rec][(index_attr + iterator) % cfg.n_attributes] >= median) {
+      if (data[idx_rec][(rng.index + iterator) % cfg.n_attributes] >= median) {
         r_size += 1;
       }
     }
@@ -131,14 +131,14 @@ void mondrian(struct config cfg, int **data) {
       continue;
     }
     allowable_cut = 1;
-    index_attr = (index_attr + iterator) % cfg.n_attributes;
+    rng.index = (rng.index + iterator) % cfg.n_attributes;
   }
   int **r_part = (int **)malloc(sizeof(int *) * r_size);
   int **l_part = (int **)malloc(sizeof(int *) * l_size);
   int r_count = 0;
   int l_count = 0;
   for (int idx_rec = 0; idx_rec < cfg.n_records; idx_rec++) {
-    if (data[idx_rec][index_attr] >= median) {
+    if (data[idx_rec][rng.index] >= median) {
       r_part[r_count] = data[idx_rec];
       r_count++;
     } else {
