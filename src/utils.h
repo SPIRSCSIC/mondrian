@@ -41,7 +41,9 @@ typedef struct {
 
 typedef struct {
   int *range;
+  int *n_order;
   int **order;
+  int **original; // have n_subj length
   dictionary *dict;
 } quasi;
 
@@ -59,8 +61,22 @@ typedef struct {
   partition *part;
 } partitions;
 
+typedef struct {
+  int split;
+  int next;
+  int low;
+  int high;
+} frequency;
+
+/* typedef struct { */
+/*   char **result; */
+/*   double ncp; */
+/*   double time; */
+/* } range; */
+
 extern int MAX_ROW;
 extern char *DATASET;
+extern int GL_K;
 extern config cfg;
 extern subjects subjs;
 extern quasi qi;
@@ -70,9 +86,9 @@ int string_in_list(char **, int, char *);
 
 int int_in_list(int *, int, int);
 
-void add_to_partition(partition *, int *, int);
+void add_to_partition(partition *, int *);
 
-void addn_to_partition(partition *, int, int **, int *);
+void addn_to_partition(partition *, int, int **);
 
 void add_partition(partition *);
 
@@ -84,6 +100,13 @@ int compare(const void *, const void *);
 
 void free_mem();
 
-void increase_dict_value(dictionary *, int);
+void dict_value_inc(dictionary *, int);
+
+int dict_sum(dictionary *);
+int dict_value(dictionary *, int);
+int * dict_keys(dictionary *);
+double power(double, int);
+char * merge_qi_value(int, int, int);
+void write_to_file(char ***);
 
 #endif

@@ -2,6 +2,8 @@
 
 int MAX_ROW = 1024;
 char *DATASET = "../datasets/adults.csv";
+char *OUTPUT = "output.csv";
+int GL_K = 10;
 
 int string_in_list(char **list, int length, char *value) {
   for (int i = 0; i < length; i++)
@@ -17,18 +19,17 @@ int int_in_list(int *list, int length, int value) {
   return -1;
 }
 
-void add_to_partition(partition *part, int *record, int length) {
+void add_to_partition(partition *part, int *record) {
   part->n_member++;
   part->member = (int **)realloc(part->member, part->n_member * sizeof(int *));
-  int *tmp = (int *)malloc(length * sizeof(int));
-  memcpy(tmp, record, length);
+  int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
+  memcpy(tmp, record, cfg.n_qid * sizeof(int));
   part->member[part->n_member - 1] = tmp;
 }
 
-void addn_to_partition(partition *part, int n_records, int **records,
-                       int *lengths) {
+void addn_to_partition(partition *part, int n_records, int **records) {
   for (int i = 0; i < n_records; i++) {
-    add_to_partition(part, records[i], lengths[i]);
+    add_to_partition(part, records[i]);
   }
 }
 
@@ -40,9 +41,6 @@ void add_partition(partition *part) {
 }
 
 double normalized_width(partition *part, int index) {
-  printf("part->high: %d, part->low: %d, order[high]: %d, order[low]: %d\n",
-         qi.order[index][part->high[index]], part->high[index],
-         qi.order[index][part->low[index]], part->low[index]);
   int diff =
       qi.order[index][part->high[index]] - qi.order[index][part->low[index]];
   double range = qi.range[index];
@@ -59,7 +57,7 @@ void parse_dataset() {
   int idx_attr = 0;
   int digit = 0;
 
-  fp = fopen("../datasets/adults.csv", "r");
+  fp = fopen(DATASET, "r");
 
   while (!feof(fp)) {
     res = fgets(row, MAX_ROW, fp);
@@ -203,17 +201,6 @@ int compare(const void *a, const void *b) {
 }
 
 void free_mem() {
-  free(qi.range);
-  for (int i = 0; i < cfg.n_qid; i++) {
-    free(qi.order[i]);
-    free(qi.dict[i].tuple);
-  }
-  free(qi.order);
-  free(qi.dict);
-  for (int i = 0; i < subjs.n_subj; i++) {
-    free(subjs.attr_values[i]);
-  }
-  free(subjs.attr_values);
   for (int i = 0; i < parts.n_part; i++) {
     free(parts.part[i].low);
     free(parts.part[i].high);
@@ -224,6 +211,22 @@ void free_mem() {
     free(parts.part[i].allow);
   }
   free(parts.part);
+
+  for (int i = 0; i < subjs.n_subj; i++) {
+    free(subjs.attr_values[i]);
+  }
+  free(subjs.attr_values);
+
+  for (int i = 0; i < cfg.n_qid; i++) {
+    free(qi.order[i]);
+    free(qi.original[i]);
+    free(qi.dict[i].tuple);
+  }
+  free(qi.range);
+  free(qi.n_order);
+  free(qi.order);
+  free(qi.dict);
+
   for (int i = 0; i < cfg.n_qid; i++) {
     free(cfg.cat[i].values);
   }
@@ -232,7 +235,7 @@ void free_mem() {
   free(cfg.qid_indexes);
 }
 
-void increase_dict_value(dictionary *dict, int key) {
+void dict_value_inc(dictionary *dict, int key) {
   int found = 0;
   for (int i = 0; i < dict->n_tuple; i++) {
     if (dict->tuple[i].key == key) {
@@ -246,4 +249,82 @@ void increase_dict_value(dictionary *dict, int key) {
     tuple tmp = {key, 1};
     dict->tuple[dict->n_tuple - 1] = tmp;
   }
+}
+
+int dict_sum(dictionary *dict) {
+  int sum = 0;
+  for (int i = 0; i < dict->n_tuple; i++)
+    sum += dict->tuple[i].value;
+  return sum;
+}
+
+int dict_value(dictionary *dict, int key) {
+  int res = 0;
+  for (int i = 0; i < dict->n_tuple && !res; i++) {
+    if (dict->tuple[i].key == key) {
+      res = dict->tuple[i].value;
+    }
+  }
+  return res;
+}
+
+int *dict_keys(dictionary *dict) {
+  int *keys = (int *)malloc(dict->n_tuple * sizeof(int));
+  for (int i = 0; i < dict->n_tuple; i++) {
+    keys[i] = dict->tuple[i].key;
+  }
+  qsort(keys, dict->n_tuple, sizeof(int), compare);
+  return keys;
+}
+
+double power(double x, int n) {
+  if (n == 0)
+    return 1;
+  if (x == 0.0)
+    return 0;
+  return x * power(x, n - 1);
+}
+
+char **range_categories(int index, int start, int end) {
+  int n_range = end - start + 1;
+  char **range = (char **)malloc(sizeof(char *) * n_range);
+  category cat = cfg.cat[index];
+  for (int i = 0; i < n_range; i++) {
+    range[i] = cat.values[i];
+  }
+  return range;
+}
+
+char *merge_qi_value(int index, int left, int right) {
+  /* assuming maximum value of int is 2147483647, len = 10 */
+  /* len(int_max) + len(int_max) + "~" + \0 */
+  char *merged = (char *)malloc(sizeof(char) * 22);
+  /* char * merged = (char*) malloc(sizeof(char) * MAX_ROW); */
+  if (left == right)
+    /* if (int_in_list(cfg.n_attr_num_indexes, */
+    /*                 cfg.n_attr_num, */
+    /*                 index) != -1) { */
+    /*   sprintf(merged, "%d", left); */
+    /* } else { */
+    /*   sprintf(merged, "%s", left); */
+    /* } */
+    sprintf(merged, "%d", left);
+  else
+    sprintf(merged, "%d~%d", left, right);
+  return merged;
+}
+
+void write_to_file(char ***data) {
+  FILE *fp;
+  fp = fopen(OUTPUT, "w");
+
+  for (int i = 0; i < subjs.n_subj; i++) {
+    if (i)
+      fprintf(fp, "\n");
+    for (int j = 0; j < cfg.n_qid - 1; j++)
+      fprintf(fp, "%s,", data[i][j]);
+    fprintf(fp, "%s", data[i][cfg.n_qid - 1]);
+  }
+  fprintf(fp, "\n");
+  fclose(fp);
 }
