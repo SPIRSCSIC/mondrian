@@ -68,11 +68,10 @@ typedef struct {
   int high;
 } frequency;
 
-/* typedef struct { */
-/*   char **result; */
-/*   double ncp; */
-/*   double time; */
-/* } range; */
+typedef struct {
+  int n_cat;
+  char **cat;
+} range;
 
 extern int MAX_ROW;
 extern char *DATASET;
@@ -106,7 +105,9 @@ int dict_sum(dictionary *);
 int dict_value(dictionary *, int);
 int * dict_keys(dictionary *);
 double power(double, int);
-char * merge_qi_value(int, int, int);
+range * range_categories(int, int, int);
+char * deanonymized_range(int, int, int);
+char * anonymized_range(int, int, int);
 void write_to_file(char ***);
 
 #endif

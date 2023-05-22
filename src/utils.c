@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <signal.h>
 
 int MAX_ROW = 1024;
 char *DATASET = "../datasets/adults.csv";
@@ -124,17 +125,17 @@ void parse_dataset() {
               else
                 break;
             }
-            if (int_in_list(cfg.qid_indexes, cfg.n_qid, idx_token) > -1) {
+            if (int_in_list(cfg.qid_indexes, cfg.n_qid, idx_token) != -1) {
               cfg.cat[idx_attr].qid_index = idx_token;
               if (digit) {
                 if (idx_row == 2) {
                   cfg.n_attr_num++;
                   cfg.n_attr_num_indexes = (int *)realloc(
                       cfg.n_attr_num_indexes, cfg.n_attr_num * sizeof(int));
-                  cfg.n_attr_num_indexes[cfg.n_attr_num - 1] = idx_token;
+                  cfg.n_attr_num_indexes[cfg.n_attr_num - 1] = idx_attr;
                 } else {
                   if (int_in_list(cfg.n_attr_num_indexes, cfg.n_attr_num,
-                                  idx_token) == -1) {
+                                  idx_attr) == -1) {
                     fprintf(
                         stderr,
                         "Error: Invalid attribute type. "
@@ -285,32 +286,66 @@ double power(double x, int n) {
   return x * power(x, n - 1);
 }
 
-char **range_categories(int index, int start, int end) {
-  int n_range = end - start + 1;
-  char **range = (char **)malloc(sizeof(char *) * n_range);
+range *range_categories(int index, int start, int end) {
+  range *rng = (range *)malloc(sizeof(range));
+  if (!start && !end)
+    rng->n_cat = 1;
+  else
+    rng->n_cat = end - start + 1;
+  rng->cat = (char **)malloc(rng->n_cat * sizeof(char *));
   category cat = cfg.cat[index];
-  for (int i = 0; i < n_range; i++) {
-    range[i] = cat.values[i];
+  for (int i = 0, j = start; i < rng->n_cat; i++, j++) {
+    rng->cat[i] = cat.values[j];
   }
-  return range;
+  return rng;
 }
 
-char *merge_qi_value(int index, int left, int right) {
+char *deanonymized_range(int index, int left, int right) {
+  char *merged = NULL;
+  /* printf("index: %d, left: %d, right: %d\n", index, left, right); */
+  if (int_in_list(cfg.n_attr_num_indexes, cfg.n_attr_num, index) == -1) {
+    range *rng = range_categories(index, left, right);
+    /* printf("range: %d\n", rng->n_cat); */
+    if (left == right && !left && !right) {
+      /* printf("allocating %ld\n", (strlen(rng->cat[0])+1)); */
+      merged = (char *)malloc((strlen(rng->cat[0]) + 1) * sizeof(char));
+      sprintf(merged, "%s", rng->cat[0]);
+    } else {
+      int sz = 0;
+      for (int i = 0; i < rng->n_cat; i++) {
+        sz = sz + strlen(rng->cat[i]);
+        /* printf("cat: %s\n", rng->cat[i]); */
+      }
+      sz = sz + rng->n_cat - 1; // add the space for ~ symbol
+      /* printf("allocating %d\n", (sz+1)); */
+      merged = (char *)malloc((sz + 1) * sizeof(char));
+      int written = 0;
+      for (int i = 0; i < rng->n_cat - 1; i++) {
+        int tmp = sprintf(&merged[written], "%s~", rng->cat[i]);
+        written = written + tmp;
+      }
+      sprintf(&merged[written], "%s", rng->cat[rng->n_cat - 1]);
+    }
+    /* printf("merged: %s, %ld\n", merged, strlen(merged)); */
+  } else {
+    merged = (char *)malloc(22 * sizeof(char));
+    if (left == right)
+      sprintf(merged, "%d", left);
+    else
+      sprintf(merged, "%d~%d", left, right);
+  }
+  return merged;
+}
+
+char *anonymized_range(int index, int left, int right) {
   /* assuming maximum value of int is 2147483647, len = 10 */
   /* len(int_max) + len(int_max) + "~" + \0 */
-  char *merged = (char *)malloc(sizeof(char) * 22);
-  /* char * merged = (char*) malloc(sizeof(char) * MAX_ROW); */
+  char *merged = (char *)malloc(22 * sizeof(char));
   if (left == right)
-    /* if (int_in_list(cfg.n_attr_num_indexes, */
-    /*                 cfg.n_attr_num, */
-    /*                 index) != -1) { */
-    /*   sprintf(merged, "%d", left); */
-    /* } else { */
-    /*   sprintf(merged, "%s", left); */
-    /* } */
     sprintf(merged, "%d", left);
   else
     sprintf(merged, "%d~%d", left, right);
+  /* printf("merged: %s\n", merged); */
   return merged;
 }
 

@@ -136,6 +136,7 @@ frequency *find_median(partition *part, int dim) {
     else
       freq->next = keys[index + 1];
   }
+  /* free(dict.tuple); */
   return freq;
 }
 
@@ -157,6 +158,7 @@ void anonymize_strict(partition *part) {
     }
     if (freq->split == -1 || freq->split == freq->next) {
       part->allow[dim] = 0;
+      /* free(freq); */
       continue;
     }
     int mean = dict_value(&qi.dict[dim], freq->split);
@@ -181,10 +183,16 @@ void anonymize_strict(partition *part) {
     }
     if (lhs.n_member < GL_K || rhs.n_member < GL_K) {
       part->allow[dim] = 0;
+      free(freq);
+      free(lhs_high);
+      free(rhs_low);
       continue;
     }
     anonymize_strict(&lhs);
     anonymize_strict(&rhs);
+    free(freq);
+    free(lhs_high);
+    free(rhs_low);
     return;
   }
   add_partition(part);
@@ -212,7 +220,6 @@ void mondrian() {
   start = clock();
   anonymize_strict(&part);
   cpu_time_used = ((double)(clock() - start)) / CLOCKS_PER_SEC;
-
   double ncp = 0.0;
   double dp = 0.0;
   int n_res = 0;
@@ -229,8 +236,9 @@ void mondrian() {
     for (int j = parts.part[i].n_member; j > 0; j--) {
       res[n_res - j] = (char **)malloc(cfg.n_qid * sizeof(char *));
       for (int k = 0; k < cfg.n_qid; k++) {
-        res[n_res - j][k] = merge_qi_value(k, qi.order[k][parts.part[i].low[k]],
-                                           qi.order[k][parts.part[i].high[k]]);
+        res[n_res - j][k] =
+            deanonymized_range(k, qi.order[k][parts.part[i].low[k]],
+                               qi.order[k][parts.part[i].high[k]]);
       }
     }
   }
@@ -243,14 +251,21 @@ void mondrian() {
   printf("NCP %0.2f%%\n", ncp);
   printf("Running time %0.10f sec\n", cpu_time_used);
 
-  free(low);
-  free(high);
-  for (int i = 0; i < subjs.n_subj; i++) {
-    for (int j = 0; j < cfg.n_qid; j++)
-      free(res[i][j]);
-    free(res[i]);
+  int idx = 0;
+  for (int i = 0; i < parts.n_part; i++) {
+    idx = idx + parts.part[i].n_member;
+    for (int j = parts.part[i].n_member; j > 0; j--) {
+      for (int k = 0; k < cfg.n_qid; k++) {
+        free(res[idx - j][k]);
+      }
+      free(res[idx - j]);
+    }
   }
   free(res);
+
+  for (int i = 0; i < subjs.n_subj; i++)
+    free(data[i]);
+  free(data);
 }
 
 int main(int argc, char **argv) {
