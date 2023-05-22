@@ -1,5 +1,4 @@
 #include "utils.h"
-#include <signal.h>
 
 int MAX_ROW = 1024;
 char *DATASET = "../datasets/adults.csv";
