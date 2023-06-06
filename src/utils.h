@@ -75,6 +75,9 @@ typedef struct {
 
 extern int MAX_ROW;
 extern char *DATASET;
+extern char *OUTPUT;
+extern char *MODE;
+extern int ANON;
 extern int GL_K;
 extern config cfg;
 extern subjects subjs;
@@ -89,6 +92,8 @@ void add_to_partition(partition *, int *);
 
 void addn_to_partition(partition *, int, int **);
 
+void add_to_list(int ***, int *, int *);
+
 void add_partition(partition *);
 
 double normalized_width(partition *, int);
@@ -102,12 +107,21 @@ void free_mem();
 void dict_value_inc(dictionary *, int);
 
 int dict_sum(dictionary *);
+
 int dict_value(dictionary *, int);
+
 int * dict_keys(dictionary *);
+
 double power(double, int);
+
 range * range_categories(int, int, int);
+
 char * deanonymized_range(int, int, int);
+
 char * anonymized_range(int, int, int);
+
 void write_to_file(char ***);
+
+void usage(int);
 
 #endif

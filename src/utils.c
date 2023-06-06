@@ -1,9 +1,11 @@
 #include "utils.h"
 
 int MAX_ROW = 1024;
-char *DATASET = "../datasets/adults.csv";
-char *OUTPUT = "output.csv";
 int GL_K = 10;
+char *DATASET = NULL;
+char *OUTPUT = NULL;
+char *MODE = NULL;
+int ANON = 0;
 
 int string_in_list(char **list, int length, char *value) {
   for (int i = 0; i < length; i++)
@@ -25,6 +27,14 @@ void add_to_partition(partition *part, int *record) {
   int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
   memcpy(tmp, record, cfg.n_qid * sizeof(int));
   part->member[part->n_member - 1] = tmp;
+}
+
+void add_to_list(int ***records, int *n_records, int *record) {
+  (*n_records)++;
+  *records = (int **)realloc(*records, *n_records * sizeof(int *));
+  int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
+  memcpy(tmp, record, cfg.n_qid * sizeof(int));
+  (*records)[*n_records - 1] = tmp;
 }
 
 void addn_to_partition(partition *part, int n_records, int **records) {
@@ -225,6 +235,7 @@ void free_mem() {
   free(qi.range);
   free(qi.n_order);
   free(qi.order);
+  free(qi.original);
   free(qi.dict);
 
   for (int i = 0; i < cfg.n_qid; i++) {
@@ -361,4 +372,16 @@ void write_to_file(char ***data) {
   }
   fprintf(fp, "\n");
   fclose(fp);
+}
+
+void usage(int error) {
+  FILE *out = stdout;
+  if (error)
+    out = stderr;
+  fprintf(out,
+          "Usage:\n"
+          "\t-f DATASET\t\tDataset file path. Default: ../datasets/adults.csv\n"
+          "\t-o OUTPUT\t\tOutput file path. Default: output.csv\n"
+          "\t-m strict|relaxed\tMondrian mode: Default: strict\n"
+          "\t-a\t\t If present, anonymize output attributes.\n");
 }

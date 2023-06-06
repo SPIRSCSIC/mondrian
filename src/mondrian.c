@@ -1,4 +1,6 @@
 #include "mondrian.h"
+#include "utils.h"
+#include <unistd.h>
 
 config cfg = {0, NULL, 0, NULL, 0, NULL, NULL};
 subjects subjs = {0, NULL};
@@ -139,7 +141,10 @@ frequency *find_median(partition *part, int dim) {
 }
 
 void anonymize_strict(partition *part) {
-  if (!part->n_allow) {
+  int sum = 0;
+  for (int i = 0; i < part->n_allow; i++)
+    sum += part->allow[i];
+  if (!sum) {
     add_partition(part);
     return;
   }
@@ -156,15 +161,14 @@ void anonymize_strict(partition *part) {
     }
     if (freq->split == -1 || freq->split == freq->next) {
       part->allow[dim] = 0;
-      /* free(freq); */
       continue;
     }
     int mean = dict_value(&qi.dict[dim], freq->split);
     int *lhs_high = (int *)malloc(cfg.n_qid * sizeof(int));
     int *rhs_low = (int *)malloc(cfg.n_qid * sizeof(int));
-    for (int i = 0; i < cfg.n_qid; i++) {
-      lhs_high[i] = part->high[i];
-      rhs_low[i] = part->low[i];
+    for (int j = 0; j < cfg.n_qid; j++) {
+      lhs_high[j] = part->high[j];
+      rhs_low[j] = part->low[j];
     }
     lhs_high[dim] = mean;
     rhs_low[dim] = dict_value(&qi.dict[dim], freq->next);
@@ -196,6 +200,69 @@ void anonymize_strict(partition *part) {
   add_partition(part);
 }
 
+void anonymize_relaxed(partition *part) {
+  int sum = 0;
+  for (int i = 0; i < part->n_allow; i++)
+    sum += part->allow[i];
+  if (!sum) {
+    add_partition(part);
+    return;
+  }
+  int dim = choose_dimension(part);
+  if (dim == -1) {
+    fprintf(stderr, "Error: dim = -1");
+    exit(1);
+  }
+  frequency *freq = find_median(part, dim);
+  if (freq->low != -1) {
+    part->low[dim] = dict_value(&qi.dict[dim], freq->low);
+    part->high[dim] = dict_value(&qi.dict[dim], freq->high);
+  }
+  if (freq->split == -1) {
+    part->allow[dim] = 0;
+    anonymize_relaxed(part);
+    return;
+  }
+  int mean = dict_value(&qi.dict[dim], freq->split);
+  int *lhs_high = (int *)malloc(cfg.n_qid * sizeof(int));
+  int *rhs_low = (int *)malloc(cfg.n_qid * sizeof(int));
+  for (int i = 0; i < cfg.n_qid; i++) {
+    lhs_high[i] = part->high[i];
+    rhs_low[i] = part->low[i];
+  }
+  lhs_high[dim] = mean;
+  rhs_low[dim] = dict_value(&qi.dict[dim], freq->next);
+  partition lhs = {NULL, NULL, 0, NULL, 0, NULL};
+  partition_init(&lhs, NULL, 0, part->low, lhs_high);
+  partition rhs = {NULL, NULL, 0, NULL, 0, NULL};
+  partition_init(&rhs, NULL, 0, rhs_low, part->high);
+  int **mid_set = NULL;
+  int n_mid = 0;
+  for (int i = 0; i < part->n_member; i++) {
+    int pos = dict_value(&qi.dict[dim], part->member[i][dim]);
+    if (pos < mean) {
+      add_to_partition(&lhs, part->member[i]);
+    } else if (pos > mean) {
+      add_to_partition(&rhs, part->member[i]);
+    } else {
+      add_to_list(&mid_set, &n_mid, part->member[i]);
+    }
+  }
+  int half_size = part->n_member / 2;
+  for (int i = half_size - lhs.n_member; i > 0; i--, n_mid--) {
+    add_to_partition(&lhs, mid_set[n_mid - 1]);
+  }
+  if (n_mid > 0) {
+    rhs.low[dim] = mean;
+    addn_to_partition(&rhs, n_mid, mid_set);
+  }
+  anonymize_relaxed(&lhs);
+  anonymize_relaxed(&rhs);
+  free(freq);
+  free(lhs_high);
+  free(rhs_low);
+}
+
 void mondrian() {
   mondrian_init();
   int *low = (int *)malloc(cfg.n_qid * sizeof(int));
@@ -216,12 +283,19 @@ void mondrian() {
   clock_t start;
   double cpu_time_used;
   start = clock();
-  anonymize_strict(&part);
+  if (!strcmp(MODE, "strict"))
+    anonymize_strict(&part);
+  else
+    anonymize_relaxed(&part);
   cpu_time_used = ((double)(clock() - start)) / CLOCKS_PER_SEC;
   double ncp = 0.0;
   double dp = 0.0;
   int n_res = 0;
   char ***res = NULL;
+  char *(*range_func)(int, int, int) = &deanonymized_range;
+  if (ANON)
+    range_func = &anonymized_range;
+
   for (int i = 0; i < parts.n_part; i++) {
     n_res = n_res + parts.part[i].n_member;
     res = (char ***)realloc(res, n_res * sizeof(char **));
@@ -234,16 +308,14 @@ void mondrian() {
     for (int j = parts.part[i].n_member; j > 0; j--) {
       res[n_res - j] = (char **)malloc(cfg.n_qid * sizeof(char *));
       for (int k = 0; k < cfg.n_qid; k++) {
-        res[n_res - j][k] =
-            deanonymized_range(k, qi.order[k][parts.part[i].low[k]],
-                               qi.order[k][parts.part[i].high[k]]);
+        res[n_res - j][k] = range_func(k, qi.order[k][parts.part[i].low[k]],
+                                       qi.order[k][parts.part[i].high[k]]);
       }
     }
   }
   ncp = ncp / cfg.n_qid;
   ncp = ncp / subjs.n_subj;
   ncp = ncp * 100;
-
   write_to_file(res);
 
   printf("NCP %0.2f%%\n", ncp);
@@ -260,13 +332,51 @@ void mondrian() {
     }
   }
   free(res);
-
   for (int i = 0; i < subjs.n_subj; i++)
     free(data[i]);
   free(data);
 }
 
 int main(int argc, char **argv) {
+  int opt;
+  int errflg = 0;
+  while ((opt = getopt(argc, argv, ":f:m:o:ha")) != -1) {
+    switch (opt) {
+    case 'f':
+      DATASET = optarg;
+      break;
+    case 'o':
+      OUTPUT = optarg;
+      break;
+    case 'm':
+      MODE = optarg;
+      break;
+    case 'a':
+      ANON = 1;
+      break;
+    case ':':
+      /* -f or -o without operand */
+      fprintf(stderr, "Error: Option -%c requires an operand\n", optopt);
+      errflg++;
+      break;
+    case 'h':
+      usage(0);
+      exit(0);
+    case '?':
+      fprintf(stderr, "Error:v Unrecognized option: '-%c'\n", optopt);
+      errflg++;
+    }
+  }
+  if (errflg) {
+    usage(1);
+    exit(1);
+  }
+  if (!DATASET)
+    DATASET = "../datasets/adults.csv";
+  if (!OUTPUT)
+    OUTPUT = "output.csv";
+  if (!MODE)
+    MODE = "strict";
   parse_dataset();
   mondrian();
   free_mem();
