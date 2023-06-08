@@ -1,5 +1,7 @@
 #include "mondrian.h"
 #include "utils.h"
+#include <errno.h>
+#include <string.h>
 #include <unistd.h>
 
 config cfg = {0, NULL, 0, NULL, 0, NULL, NULL};
@@ -316,10 +318,12 @@ void mondrian() {
   ncp = ncp / cfg.n_qid;
   ncp = ncp / subjs.n_subj;
   ncp = ncp * 100;
-  write_to_file(res);
+  if (!RES)
+    write_to_file(res);
 
-  printf("NCP %0.2f%%\n", ncp);
-  printf("Running time %0.10f sec\n", cpu_time_used);
+  printf("K: %d\n", GL_K);
+  printf("Normalized Certainty Penalty: %0.2f%%\n", ncp);
+  printf("Time: %0.8f sec\n", cpu_time_used);
 
   int idx = 0;
   for (int i = 0; i < parts.n_part; i++) {
@@ -340,36 +344,70 @@ void mondrian() {
 int main(int argc, char **argv) {
   int opt;
   int errflg = 0;
-  while ((opt = getopt(argc, argv, ":f:m:o:ha")) != -1) {
+  int digit = 0;
+  void *fp;
+  while ((opt = getopt(argc, argv, ":f:m:o:hak:r")) != -1) {
     switch (opt) {
     case 'f':
+      if (access(optarg, F_OK)) {
+        fprintf(stderr, "Error: File %s does not exist or cannot be opened\n",
+                optarg);
+        exit(errno);
+      }
       DATASET = optarg;
       break;
     case 'o':
+      fp = fopen(optarg, "w");
+      if (fp != NULL) {
+        fclose(fp);
+        remove(optarg);
+      } else {
+        fprintf(stderr, "Error: File %s cannot not be written\n", optarg);
+        exit(errno);
+      }
       OUTPUT = optarg;
       break;
     case 'm':
+      if (strcmp(optarg, "strict") && strcmp(optarg, "relaxed")) {
+        fprintf(stderr,
+                "Error: Option -m requires argument: strict or relaxed\n");
+        errflg++;
+        break;
+      }
       MODE = optarg;
+      break;
+    case 'k':
+      for (int i = 0; optarg[i]; i++) {
+        if ((optarg[i] != '\0') && (digit = isdigit(optarg[i])))
+          continue;
+        else {
+          fprintf(stderr, "Error: Option -k requires an integer argument\n");
+          errflg++;
+          break;
+        }
+      }
+      GL_K = atoi(optarg);
       break;
     case 'a':
       ANON = 1;
       break;
+    case 'r':
+      RES = 1;
+      break;
     case ':':
       /* -f or -o without operand */
-      fprintf(stderr, "Error: Option -%c requires an operand\n", optopt);
+      fprintf(stderr, "Error: Option -%c requires an argument\n", optopt);
       errflg++;
       break;
     case 'h':
       usage(0);
-      exit(0);
     case '?':
-      fprintf(stderr, "Error:v Unrecognized option: '-%c'\n", optopt);
+      fprintf(stderr, "Error: Unrecognized option: '-%c'\n", optopt);
       errflg++;
     }
   }
   if (errflg) {
     usage(1);
-    exit(1);
   }
   if (!DATASET)
     DATASET = "../datasets/adults.csv";

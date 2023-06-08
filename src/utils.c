@@ -5,7 +5,9 @@ int GL_K = 10;
 char *DATASET = NULL;
 char *OUTPUT = NULL;
 char *MODE = NULL;
+char *TEST = NULL;
 int ANON = 0;
+int RES = 0;
 
 int string_in_list(char **list, int length, char *value) {
   for (int i = 0; i < length; i++)
@@ -376,12 +378,17 @@ void write_to_file(char ***data) {
 
 void usage(int error) {
   FILE *out = stdout;
-  if (error)
+  if (error) {
     out = stderr;
-  fprintf(out,
-          "Usage:\n"
-          "\t-f DATASET\t\tDataset file path. Default: ../datasets/adults.csv\n"
-          "\t-o OUTPUT\t\tOutput file path. Default: output.csv\n"
-          "\t-m strict|relaxed\tMondrian mode: Default: strict\n"
-          "\t-a\t\t If present, anonymize output attributes.\n");
+    fprintf(out, "\n");
+  }
+  fprintf(
+      out,
+      "Usage:\n"
+      "\t-f DATASET\t\t Dataset file path. Default: ../datasets/adults.csv\n"
+      "\t-o OUTPUT\t\t Output file path. Default: output.csv\n"
+      "\t-m strict|relaxed\t Mondrian mode. Default: strict\n"
+      "\t-a\t\t\t If present, anonymize output attributes.\n"
+      "\t-r\t\t\t If present, only generate results (no output file).\n");
+  exit(error);
 }
