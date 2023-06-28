@@ -1,4 +1,8 @@
 #include "utils.h"
+#include "string.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 int MAX_ROW = 1024;
 int GL_K = 10;
