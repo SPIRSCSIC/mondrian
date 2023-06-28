@@ -388,6 +388,7 @@ void usage(int error) {
       "\t-f DATASET\t\t Dataset file path. Default: ../datasets/adults.csv\n"
       "\t-o OUTPUT\t\t Output file path. Default: output.csv\n"
       "\t-m strict|relaxed\t Mondrian mode. Default: strict\n"
+      "\t-k VALUE\t\t k-Anonymity value. Default: 10\n"
       "\t-a\t\t\t If present, anonymize output attributes.\n"
       "\t-r\t\t\t If present, only generate results (no output file).\n");
   exit(error);
