@@ -1,6 +1,7 @@
 tmp/
 .vscode/
 build/
+datasets/tee.csv
 
 # Created by https://www.toptal.com/developers/gitignore/api/c
 # Edit at https://www.toptal.com/developers/gitignore?templates=c
