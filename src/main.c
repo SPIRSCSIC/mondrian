@@ -1,11 +1,12 @@
-#include "mondrian.h"
-#include "utils.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include "common.h"
+#include "mondrian.h"
 
 int main(int argc, char **argv) {
   int opt;

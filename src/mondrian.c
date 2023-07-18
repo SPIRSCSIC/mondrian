@@ -1,9 +1,10 @@
-#include "mondrian.h"
-#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+#include "common.h"
+#include "mondrian.h"
 
 config cfg = {0, NULL, 0, NULL, 0, NULL, NULL};
 subjects subjs = {0, NULL};

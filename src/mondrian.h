@@ -1,7 +1,8 @@
 #ifndef MONDRIAN_H
 #define MONDRIAN_H
 
-#include "utils.h"
+#include "common.h"
+
 
 extern config cfg;
 extern subjects subjs;
