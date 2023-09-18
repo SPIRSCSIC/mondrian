@@ -65,7 +65,6 @@ double normalized_width(partition *part, int index) {
 }
 
 void parse_dataset() {
-  FILE *fp;
   char row[MAX_ROW];
   char *res;
   char *token;
@@ -74,7 +73,7 @@ void parse_dataset() {
   int idx_attr = 0;
   int digit = 0;
 
-  fp = fopen(DATASET, "r");
+  FILE *fp = fopen(DATASET, "r");
 
   while (!feof(fp)) {
     res = fgets(row, MAX_ROW, fp);
@@ -367,8 +366,7 @@ char *anonymized_range(int index, int left, int right) {
 }
 
 void write_to_file(char ***data) {
-  FILE *fp;
-  fp = fopen(OUTPUT, "w");
+  FILE *fp = fopen(OUTPUT, "w");
 
   for (int i = 0; i < subjs.n_subj; i++) {
     if (i)
@@ -387,14 +385,14 @@ void usage(int error) {
     out = stderr;
     fprintf(out, "\n");
   }
-  fprintf(
-      out,
-      "Usage:\n"
-      "\t-f DATASET\t\t Dataset file path. Default: ../datasets/adults.csv\n"
-      "\t-o OUTPUT\t\t Output file path. Default: output.csv\n"
-      "\t-m strict|relaxed\t Mondrian mode. Default: strict\n"
-      "\t-k VALUE\t\t k-Anonymity value. Default: 10\n"
-      "\t-a\t\t\t If present, anonymize output attributes.\n"
-      "\t-r\t\t\t If present, only generate results (no output file).\n");
+  fprintf(out,
+          "Usage:\n"
+          "\t--input|-i INPUT\t\t Input file path. Default: "
+          "../datasets/adults.csv\n"
+          "\t--output|-o OUTPUT\t\t Output file path. Default: output.csv\n"
+          "\t--k|-k VALUE\t\t\t k-Anonymity value. Default: 10\n"
+          "\t--relaxed\t\t\t If present, use run on relaxed mode.\n"
+          "\t--anonymize\t\t\t If present, anonymize output attributes.\n"
+          "\t--results\t\t\t If present, only generate results (no output file).\n");
   exit(error);
 }

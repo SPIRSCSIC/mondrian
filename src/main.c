@@ -1,5 +1,7 @@
+/* #include <bits/getopt_core.h> */
 #include <ctype.h>
 #include <errno.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,19 +10,45 @@
 #include "common.h"
 #include "mondrian.h"
 
+static int anonymize_flag;
+static int relaxed_flag;
+static int results_flag;
+
+void check_file(char *file) {
+  if (access(file, F_OK)) {
+    fprintf(stderr, "Error: File %s does not exist or cannot be opened\n",
+            optarg);
+    exit(errno);
+  }
+}
+
 int main(int argc, char **argv) {
   int opt;
-  int errflg = 0;
+  int opt_idx = 0;
+  static struct option long_options[] = {
+      /* flags */
+      {"anonymize", no_argument, &anonymize_flag, 1},
+      {"relaxed", no_argument, &relaxed_flag, 1},
+      {"results", no_argument, &results_flag, 1},
+      /* Mondrian options */
+      {"input", required_argument, 0, 'i'},
+      {"k", required_argument, 0, 'k'},
+      {"output", required_argument, 0, 'o'},
+      /* extra */
+      {"help", no_argument, 0, 'h'},
+      {0, 0, 0, 0}};
+
   int digit = 0;
   void *fp;
-  while ((opt = getopt(argc, argv, ":f:m:o:hak:r")) != -1) {
+  while ((opt = getopt_long(argc, argv, "hi:k:o:", long_options, &opt_idx)) !=
+         -1) {
     switch (opt) {
-    case 'f':
-      if (access(optarg, F_OK)) {
-        fprintf(stderr, "Error: File %s does not exist or cannot be opened\n",
-                optarg);
-        exit(errno);
-      }
+    case 0:
+      /* If this option set a flag, do nothing else now. */
+      if (long_options[opt_idx].flag != 0)
+        break;
+    case 'i':
+      check_file(optarg);
       DATASET = optarg;
       break;
     case 'o':
@@ -29,59 +57,43 @@ int main(int argc, char **argv) {
         fclose(fp);
         remove(optarg);
       } else {
-        fprintf(stderr, "Error: File %s cannot not be written\n", optarg);
+        fprintf(stderr, "Error: File %s cannot be written\n", optarg);
         exit(errno);
       }
       OUTPUT = optarg;
       break;
-    case 'm':
-      if (strcmp(optarg, "strict") && strcmp(optarg, "relaxed")) {
-        fprintf(stderr,
-                "Error: Option -m requires argument: strict or relaxed\n");
-        errflg++;
-        break;
-      }
-      MODE = optarg;
-      break;
     case 'k':
-      for (int i = 0; optarg[i]; i++) {
-        if ((optarg[i] != '\0') && (digit = isdigit(optarg[i])))
-          continue;
-        else {
-          fprintf(stderr, "Error: Option -k requires an integer argument\n");
-          errflg++;
-          break;
+      for (int i = 0; i < strlen(optarg); i++) {
+        if (!isdigit(optarg[i])) {
+          fprintf(stderr, "k-Anonymity value must be integer\n");
+          exit(1);
         }
       }
       GL_K = atoi(optarg);
       break;
-    case 'a':
-      ANON = 1;
-      break;
-    case 'r':
-      RES = 1;
-      break;
-    case ':':
-      /* -f or -o without operand */
-      fprintf(stderr, "Error: Option -%c requires an argument\n", optopt);
-      errflg++;
-      break;
     case 'h':
       usage(0);
+      break;
     case '?':
-      fprintf(stderr, "Error: Unrecognized option: '-%c'\n", optopt);
-      errflg++;
+      /* getopt_long already printed an error message. */
+      break;
+    default:
+      usage(1);
     }
   }
-  if (errflg) {
-    usage(1);
-  }
+
   if (!DATASET)
     DATASET = "../datasets/adults.csv";
   if (!OUTPUT)
     OUTPUT = "output.csv";
-  if (!MODE)
+  if (relaxed_flag)
+    MODE = "relaxed";
+  else
     MODE = "strict";
+  if (results_flag)
+    RES = 1;
+  if (anonymize_flag)
+    ANON = 1;
   parse_dataset();
   mondrian();
   free_mem();
