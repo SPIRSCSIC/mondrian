@@ -75,6 +75,11 @@ void parse_dataset() {
 
   FILE *fp = fopen(DATASET, "r");
 
+  if (fp == NULL) {
+    fprintf(stderr, "Error: %s file cannot be read\n", DATASET);
+    exit(1);
+  }
+
   while (!feof(fp)) {
     res = fgets(row, MAX_ROW, fp);
     if (res != NULL) {
@@ -367,7 +372,10 @@ char *anonymized_range(int index, int left, int right) {
 
 void write_to_file(char ***data) {
   FILE *fp = fopen(OUTPUT, "w");
-
+  if (fp == NULL) {
+    fprintf(stderr, "Error: %s file cannot be written\n", OUTPUT);
+    exit(1);
+  }
   for (int i = 0; i < subjs.n_subj; i++) {
     if (i)
       fprintf(fp, "\n");
@@ -393,6 +401,7 @@ void usage(int error) {
           "\t--k|-k VALUE\t\t\t k-Anonymity value. Default: 10\n"
           "\t--relaxed\t\t\t If present, use run on relaxed mode.\n"
           "\t--anonymize\t\t\t If present, anonymize output attributes.\n"
-          "\t--results\t\t\t If present, only generate results (no output file).\n");
+          "\t--results\t\t\t If present, only generate results (no output "
+          "file).\n");
   exit(error);
 }

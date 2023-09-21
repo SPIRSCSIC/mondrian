@@ -14,14 +14,6 @@ static int anonymize_flag;
 static int relaxed_flag;
 static int results_flag;
 
-void check_file(char *file) {
-  if (access(file, F_OK)) {
-    fprintf(stderr, "Error: File %s does not exist or cannot be opened\n",
-            optarg);
-    exit(errno);
-  }
-}
-
 int main(int argc, char **argv) {
   int opt;
   int opt_idx = 0;
@@ -48,18 +40,9 @@ int main(int argc, char **argv) {
       if (long_options[opt_idx].flag != 0)
         break;
     case 'i':
-      check_file(optarg);
       DATASET = optarg;
       break;
     case 'o':
-      fp = fopen(optarg, "w");
-      if (fp != NULL) {
-        fclose(fp);
-        remove(optarg);
-      } else {
-        fprintf(stderr, "Error: File %s cannot be written\n", optarg);
-        exit(errno);
-      }
       OUTPUT = optarg;
       break;
     case 'k':
