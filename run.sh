@@ -10,7 +10,7 @@ build () {
 }
 
 run () {
-    ./build/mondrian -f datasets/${dataset}.csv -o ${dataset}_anonymized.csv \
+    ./build/mondrian -i datasets/${dataset}.csv -o ${dataset}_anonymized.csv \
         && echo -e "\nFile ${dataset}_anonymized.csv generated in current directory"
 }
 

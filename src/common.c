@@ -13,56 +13,11 @@ char *MODE = NULL;
 char *TEST = NULL;
 int ANON = 0;
 int RES = 0;
+tracker added = {0, NULL};
+tracker freed = {0, NULL};
+partitions parts = {0, NULL};
+partitions created = {0, NULL};
 
-int string_in_list(char **list, int length, char *value) {
-  for (int i = 0; i < length; i++)
-    if (strcmp(list[i], value) == 0)
-      return i;
-  return -1;
-}
-
-int int_in_list(int *list, int length, int value) {
-  for (int i = 0; i < length; i++)
-    if (list[i] == value)
-      return i;
-  return -1;
-}
-
-void add_to_partition(partition *part, int *record) {
-  part->n_member++;
-  part->member = (int **)realloc(part->member, part->n_member * sizeof(int *));
-  int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
-  memcpy(tmp, record, cfg.n_qid * sizeof(int));
-  part->member[part->n_member - 1] = tmp;
-}
-
-void add_to_list(int ***records, int *n_records, int *record) {
-  (*n_records)++;
-  *records = (int **)realloc(*records, *n_records * sizeof(int *));
-  int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
-  memcpy(tmp, record, cfg.n_qid * sizeof(int));
-  (*records)[*n_records - 1] = tmp;
-}
-
-void addn_to_partition(partition *part, int n_records, int **records) {
-  for (int i = 0; i < n_records; i++) {
-    add_to_partition(part, records[i]);
-  }
-}
-
-void add_partition(partition *part) {
-  parts.n_part++;
-  parts.part =
-      (partition *)realloc(parts.part, parts.n_part * sizeof(partition));
-  parts.part[parts.n_part - 1] = *part;
-}
-
-double normalized_width(partition *part, int index) {
-  int diff =
-      qi.order[index][part->high[index]] - qi.order[index][part->low[index]];
-  double range = qi.range[index];
-  return diff / range;
-}
 
 void parse_dataset() {
   char row[MAX_ROW];
@@ -215,46 +170,147 @@ void parse_dataset() {
   fclose(fp);
 }
 
+void partition_init(partition *part, int **data, int n_data, int *low, int *high) {
+  part->id = rand();
+  part->low = (int *)malloc(cfg.n_qid * sizeof(int));
+  memcpy(part->low, low, cfg.n_qid * sizeof(int));
+  part->high = (int *)malloc(cfg.n_qid * sizeof(int));
+  memcpy(part->high, high, cfg.n_qid * sizeof(int));
+  part->n_allow = cfg.n_qid; // array of 8 elements, each value is 1
+  part->allow = (int *)malloc(cfg.n_qid * sizeof(int));
+
+  for (int i = 0; i < cfg.n_qid; i++)
+    part->allow[i] = 1;
+  if (n_data) {
+    part->n_member = n_data;
+    part->member = (int **)malloc(n_data * sizeof(int *));
+    for (int i = 0; i < n_data; i++) {
+      part->member[i] = (int *)malloc(cfg.n_qid * sizeof(int));
+      memcpy(part->member[i], data[i], cfg.n_qid * sizeof(int));
+    }
+  } else {
+    part->n_member = 0;
+    part->member = NULL;
+  }
+}
+
+void store_in_created(partition *part) {
+  created.n_part++;
+  created.part = (partition *)realloc(created.part, created.n_part * sizeof(partition));
+  created.part[created.n_part - 1] = *part;
+}
+
+void store_in_parts(partition *part) {
+  parts.n_part++;
+  parts.part =
+      (partition *)realloc(parts.part, parts.n_part * sizeof(partition));
+  parts.part[parts.n_part - 1] = *part;
+  added.n_elem++;
+  added.elements = (int *)realloc(added.elements, added.n_elem * sizeof(int));
+  added.elements[added.n_elem - 1] = part->id;
+}
+
+void add_to_partition(partition *part, int *record) {
+  part->n_member++;
+  part->member = (int **)realloc(part->member, part->n_member * sizeof(int *));
+  int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
+  memcpy(tmp, record, cfg.n_qid * sizeof(int));
+  part->member[part->n_member - 1] = tmp;
+}
+
+void addn_to_partition(partition *part, int n_records, int **records) {
+  for (int i = 0; i < n_records; i++) {
+    add_to_partition(part, records[i]);
+  }
+}
+
+void add_to_list(int ***records, int *n_records, int *record) {
+  (*n_records)++;
+  *records = (int **)realloc(*records, *n_records * sizeof(int *));
+  int *tmp = (int *)malloc(cfg.n_qid * sizeof(int));
+  memcpy(tmp, record, cfg.n_qid * sizeof(int));
+  (*records)[*n_records - 1] = tmp;
+}
+
+double normalized_width(partition *part, int index) {
+  int diff =
+      qi.order[index][part->high[index]] - qi.order[index][part->low[index]];
+  double range = qi.range[index];
+  return diff / range;
+}
+
+frequency *find_median(partition *part, int dim) {
+  dictionary dict = {0, NULL};
+  frequency *freq = (frequency *)malloc(sizeof(frequency));
+  *freq = (frequency){-1, -1, -1, -1};
+  for (int i = 0; i < part->n_member; i++) {
+    dict_value_inc(&dict, part->member[i][dim]);
+  }
+  int *keys = dict_keys(&dict);
+  int total = dict_sum(&dict);
+  int middle = total / 2;
+  int index = -1;
+  if (dict.n_tuple > 0) {
+    freq->low = keys[0];
+    freq->high = keys[dict.n_tuple - 1];
+  }
+  if (middle >= GL_K && dict.n_tuple > 1) {
+    int sum = 0;
+    for (int i = 0; i < dict.n_tuple && index == -1; i++) {
+      sum += dict_value(&dict, keys[i]);
+      if (sum >= middle) {
+        freq->split = keys[i];
+        index = i;
+      }
+    }
+    if (index == -1) {
+      fprintf(stderr, "Error: Could not find freq.split\n");
+      exit(1);
+    }
+    if (index + 1 >= dict.n_tuple)
+      freq->next = freq->split;
+    else
+      freq->next = keys[index + 1];
+  }
+  /* free(dict.tuple); */
+  free(keys);
+  free(dict.tuple);
+  return freq;
+}
+
+int choose_dimension(partition *part) {
+  double max_width = -1.0;
+  int max_dim = -1;
+  for (int i = 0; i < cfg.n_qid; i++) {
+    if (!part->allow[i])
+      continue;
+    double norm_width = normalized_width(part, i);
+    if (norm_width > max_width) {
+      max_width = norm_width;
+      max_dim = i;
+    }
+  }
+  return max_dim;
+}
+
 int compare(const void *a, const void *b) {
   int f_a = *((int *)a);
   int f_b = *((int *)b);
   return f_a - f_b;
 }
 
-void free_mem() {
-  for (int i = 0; i < parts.n_part; i++) {
-    free(parts.part[i].low);
-    free(parts.part[i].high);
-    for (int j = 0; j < parts.part[i].n_member; j++) {
-      free(parts.part[i].member[j]);
-    }
-    free(parts.part[i].member);
-    free(parts.part[i].allow);
-  }
-  free(parts.part);
+int string_in_list(char **list, int length, char *value) {
+  for (int i = 0; i < length; i++)
+    if (strcmp(list[i], value) == 0)
+      return i;
+  return -1;
+}
 
-  for (int i = 0; i < subjs.n_subj; i++) {
-    free(subjs.attr_values[i]);
-  }
-  free(subjs.attr_values);
-
-  for (int i = 0; i < cfg.n_qid; i++) {
-    free(qi.order[i]);
-    free(qi.original[i]);
-    free(qi.dict[i].tuple);
-  }
-  free(qi.range);
-  free(qi.n_order);
-  free(qi.order);
-  free(qi.original);
-  free(qi.dict);
-
-  for (int i = 0; i < cfg.n_qid; i++) {
-    free(cfg.cat[i].values);
-  }
-  free(cfg.cat);
-  free(cfg.attr_names);
-  free(cfg.qid_indexes);
+int int_in_list(int *list, int length, int value) {
+  for (int i = 0; i < length; i++)
+    if (list[i] == value)
+      return i;
+  return -1;
 }
 
 void dict_value_inc(dictionary *dict, int key) {
@@ -263,6 +319,7 @@ void dict_value_inc(dictionary *dict, int key) {
     if (dict->tuple[i].key == key) {
       dict->tuple[i].value++;
       found = 1;
+      break;
     }
   }
   if (!found) {
@@ -348,6 +405,8 @@ char *deanonymized_range(int index, int left, int right) {
       sprintf(&merged[written], "%s", rng->cat[rng->n_cat - 1]);
     }
     /* printf("merged: %s, %ld\n", merged, strlen(merged)); */
+    free(rng->cat);
+    free(rng);
   } else {
     merged = (char *)malloc(22 * sizeof(char));
     if (left == right)
@@ -404,4 +463,81 @@ void usage(int error) {
           "\t--results\t\t\t If present, only generate results (no output "
           "file).\n");
   exit(error);
+}
+
+void free_partition(partition *part) {
+  if (int_in_list(added.elements, added.n_elem, part->id) != -1) {
+    return;
+  }
+  free(part->low);
+  free(part->high);
+  if (part->n_member) {
+    for (int i = 0; i < part->n_member; i++) {
+      free(part->member[i]);
+    }
+    free(part->member);
+  }
+  free(part->allow);
+  freed.n_elem++;
+  freed.elements = (int *)realloc(freed.elements, freed.n_elem * sizeof(int));
+  freed.elements[freed.n_elem - 1] = part->id;
+}
+
+void free_mem() {
+  for (int i = 0; i < created.n_part; i++) {
+    if (int_in_list(freed.elements, freed.n_elem, created.part[i].id) == -1) {
+      free(created.part[i].low);
+      free(created.part[i].high);
+      free(created.part[i].allow);
+      if (created.part[i].n_member) {
+        for (int j = 0; j < created.part[i].n_member; j++)
+          free(created.part[i].member[j]);
+        free(created.part[i].member);
+      }
+    }
+  }
+  free(created.part);
+  free(parts.part);
+  free(added.elements);
+  free(freed.elements);
+
+  for (int i = 0; i < cfg.n_qid; i++) {
+    free(qi.order[i]);
+    free(qi.dict[i].tuple);
+  }
+  free(qi.range);
+  free(qi.n_order);
+  free(qi.order);
+  free(qi.dict);
+
+  for (int i = 0; i < subjs.n_subj; i++) {
+    free(qi.original[i]);
+  }
+  free(qi.original);
+
+  // *** Free allocated memory in parse_dataset
+  // n_attr_num_indexes
+  free(cfg.n_attr_num_indexes);
+
+  // attr_values and sublists
+  for (int i = 0; i < subjs.n_subj; i++) {
+    free(subjs.attr_values[i]);
+  }
+  free(subjs.attr_values);
+
+  // categories, 'values' element allocated and strdup
+  for (int i = 0; i < cfg.n_qid; i++) {
+    for (int j = 0; j < cfg.cat[i].n_values; j++)
+      free(cfg.cat[i].values[j]);
+    free(cfg.cat[i].values);
+  }
+  free(cfg.cat);
+
+  free(cfg.qid_indexes);
+
+  // attr_names and strdup
+  for (int i = 0; i < cfg.n_attr; i++) {
+    free(cfg.attr_names[i]);
+  }
+  free(cfg.attr_names);
 }

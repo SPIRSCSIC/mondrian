@@ -9,41 +9,158 @@
 config cfg = {0, NULL, 0, NULL, 0, NULL, NULL};
 subjects subjs = {0, NULL};
 quasi qi = {NULL, NULL, NULL, NULL, NULL};
-partitions parts = {0, NULL};
 
-int choose_dimension(partition *part) {
-  double max_width = -1.0;
-  int max_dim = -1;
-  for (int i = 0; i < cfg.n_qid; i++) {
-    if (!part->allow[i])
+
+void anonymize_strict(partition *part) {
+  int sum = 0;
+  for (int i = 0; i < part->n_allow; i++)
+    sum += part->allow[i];
+  if (!sum) {
+    store_in_parts(part);
+    return;
+  }
+  for (int i = 0; i < part->n_allow; i++) {
+    int dim = choose_dimension(part);
+    if (dim == -1) {
+      fprintf(stderr, "Error: dim = -1");
+      exit(1);
+    }
+    frequency *freq = find_median(part, dim);
+    if (freq->low != -1) {
+      part->low[dim] = dict_value(&qi.dict[dim], freq->low);
+      part->high[dim] = dict_value(&qi.dict[dim], freq->high);
+    }
+    if (freq->split == -1 || freq->split == freq->next) {
+      part->allow[dim] = 0;
+      free(freq);
       continue;
-    double norm_width = normalized_width(part, i);
-    if (norm_width > max_width) {
-      max_width = norm_width;
-      max_dim = i;
+    }
+    int mean = dict_value(&qi.dict[dim], freq->split);
+    int *lhs_high = (int *)malloc(cfg.n_qid * sizeof(int));
+    int *rhs_low = (int *)malloc(cfg.n_qid * sizeof(int));
+    for (int j = 0; j < cfg.n_qid; j++) {
+      lhs_high[j] = part->high[j];
+      rhs_low[j] = part->low[j];
+    }
+    lhs_high[dim] = mean;
+    rhs_low[dim] = dict_value(&qi.dict[dim], freq->next);
+    partition lhs = {NULL, NULL, 0, NULL, 0, NULL};
+    partition_init(&lhs, NULL, 0, part->low, lhs_high);
+    partition rhs = {NULL, NULL, 0, NULL, 0, NULL};
+    partition_init(&rhs, NULL, 0, rhs_low, part->high);
+    free(lhs_high);
+    free(rhs_low);
+    free(freq);
+    for (int j = 0; j < part->n_member; j++) {
+      int pos = dict_value(&qi.dict[dim], part->member[j][dim]);
+      if (pos <= mean)
+        add_to_partition(&lhs, part->member[j]);
+      else
+        add_to_partition(&rhs, part->member[j]);
+    }
+    store_in_created(&lhs);
+    store_in_created(&rhs);
+    if (lhs.n_member < GL_K || rhs.n_member < GL_K) {
+      part->allow[dim] = 0;
+      free_partition(&lhs);
+      free_partition(&rhs);
+      continue;
+    }
+    anonymize_strict(&lhs);
+    anonymize_strict(&rhs);
+    free_partition(&lhs);
+    free_partition(&rhs);
+    return;
+  }
+  store_in_parts(part);
+}
+
+void anonymize_relaxed(partition *part) {
+  int sum = 0;
+  for (int i = 0; i < part->n_allow; i++)
+    sum += part->allow[i];
+  if (!sum) {
+    store_in_parts(part);
+    return;
+  }
+  int dim = choose_dimension(part);
+  if (dim == -1) {
+    fprintf(stderr, "Error: dim = -1");
+    exit(1);
+  }
+  frequency *freq = find_median(part, dim);
+  if (freq->low != -1) {
+    part->low[dim] = dict_value(&qi.dict[dim], freq->low);
+    part->high[dim] = dict_value(&qi.dict[dim], freq->high);
+  }
+  if (freq->split == -1) {
+    part->allow[dim] = 0;
+    anonymize_relaxed(part);
+    free(freq);
+    return;
+  }
+  int mean = dict_value(&qi.dict[dim], freq->split);
+  int *lhs_high = (int *)malloc(cfg.n_qid * sizeof(int));
+  int *rhs_low = (int *)malloc(cfg.n_qid * sizeof(int));
+  for (int i = 0; i < cfg.n_qid; i++) {
+    lhs_high[i] = part->high[i];
+    rhs_low[i] = part->low[i];
+  }
+  lhs_high[dim] = mean;
+  rhs_low[dim] = dict_value(&qi.dict[dim], freq->next);
+  partition lhs = {NULL, NULL, 0, NULL, 0, NULL};
+  partition_init(&lhs, NULL, 0, part->low, lhs_high);
+  partition rhs = {NULL, NULL, 0, NULL, 0, NULL};
+  partition_init(&rhs, NULL, 0, rhs_low, part->high);
+  free(lhs_high);
+  free(rhs_low);
+  free(freq);
+  int **mid_set = NULL;
+  int n_mid = 0;
+  for (int i = 0; i < part->n_member; i++) {
+    int pos = dict_value(&qi.dict[dim], part->member[i][dim]);
+    if (pos < mean) {
+      add_to_partition(&lhs, part->member[i]);
+    } else if (pos > mean) {
+      add_to_partition(&rhs, part->member[i]);
+    } else {
+      add_to_list(&mid_set, &n_mid, part->member[i]);
     }
   }
-  return max_dim;
+  int total = n_mid;
+  int half_size = part->n_member / 2;
+  for (int i = half_size - lhs.n_member; i > 0; i--, n_mid--) {
+    add_to_partition(&lhs, mid_set[n_mid - 1]);
+  }
+  if (n_mid > 0) {
+    rhs.low[dim] = mean;
+    addn_to_partition(&rhs, n_mid, mid_set);
+  }
+  store_in_created(&lhs);
+  store_in_created(&rhs);
+  anonymize_relaxed(&lhs);
+  anonymize_relaxed(&rhs);
+  free_partition(&lhs);
+  free_partition(&rhs);
+  for (int i = 0; i < total; i++) {
+    free(mid_set[i]);
+  }
+  free(mid_set);
 }
 
 void mondrian_init() {
-  qi.range = (int *)malloc(cfg.n_qid * sizeof(int));
-  qi.n_order = (int *)malloc(cfg.n_qid * sizeof(int));
-  qi.order = (int **)malloc(cfg.n_qid * sizeof(int *));
+  qi.range = (int *)calloc(cfg.n_qid, sizeof(int));
+  qi.n_order = (int *)calloc(cfg.n_qid, sizeof(int));
+  qi.order = (int **)calloc(cfg.n_qid, sizeof(int *));
   qi.original = (int **)malloc(subjs.n_subj * sizeof(int *));
   qi.dict = (dictionary *)malloc(cfg.n_qid * sizeof(dictionary));
   for (int i = 0; i < cfg.n_qid; i++) {
     qi.dict[i] = (dictionary){0, NULL};
-    qi.n_order[i] = 0;
-    qi.order[i] = NULL;
   }
-  for (int i = 0; i < subjs.n_subj; i++)
-    qi.original[i] = NULL;
   for (int i = 0; i < subjs.n_subj; i++) {
-    qi.original[i] = (int *)realloc(qi.original[i], cfg.n_qid * sizeof(int));
+    qi.original[i] = (int *)malloc(cfg.n_qid * sizeof(int));
     for (int j = 0; j < cfg.n_qid; j++) {
-      if (int_in_list(qi.order[j], qi.n_order[j], subjs.attr_values[i][j]) ==
-          -1) {
+      if (int_in_list(qi.order[j], qi.n_order[j], subjs.attr_values[i][j]) == -1) {
         qi.n_order[j]++;
         qi.order[j] = (int *)realloc(qi.order[j], qi.n_order[j] * sizeof(int));
         qi.order[j][qi.n_order[j] - 1] = subjs.attr_values[i][j];
@@ -89,184 +206,6 @@ void mondrian_init() {
   }
 }
 
-void partition_init(partition *part, int **data, int n_data, int *low,
-                    int *high) {
-  part->low = (int *)malloc(cfg.n_qid * sizeof(int));
-  memcpy(part->low, low, cfg.n_qid * sizeof(int));
-  part->high = (int *)malloc(cfg.n_qid * sizeof(int));
-  memcpy(part->high, high, cfg.n_qid * sizeof(int));
-  part->n_allow = cfg.n_qid; // array of 8 elements, each value is 1
-  part->allow = (int *)malloc(cfg.n_qid * sizeof(int));
-  for (int i = 0; i < cfg.n_qid; i++)
-    part->allow[i] = 1;
-  part->n_member = n_data;
-  part->member = (int **)malloc(n_data * sizeof(int *));
-  for (int i = 0; i < n_data; i++) {
-    part->member[i] = (int *)malloc(cfg.n_qid * sizeof(int));
-    memcpy(part->member[i], data[i], cfg.n_qid * sizeof(int));
-  }
-}
-
-frequency *find_median(partition *part, int dim) {
-  dictionary dict = {0, NULL};
-  frequency *freq = (frequency *)malloc(sizeof(frequency));
-  *freq = (frequency){-1, -1, -1, -1};
-  for (int i = 0; i < part->n_member; i++) {
-    dict_value_inc(&dict, part->member[i][dim]);
-  }
-  int *keys = dict_keys(&dict);
-  int total = dict_sum(&dict);
-  int middle = total / 2;
-  int index = -1;
-  if (dict.n_tuple > 0) {
-    freq->low = keys[0];
-    freq->high = keys[dict.n_tuple - 1];
-  }
-  if (middle >= GL_K && dict.n_tuple > 1) {
-    int sum = 0;
-    for (int i = 0; i < dict.n_tuple && index == -1; i++) {
-      sum += dict_value(&dict, keys[i]);
-      if (sum >= middle) {
-        freq->split = keys[i];
-        index = i;
-      }
-    }
-    if (index == -1) {
-      fprintf(stderr, "Error: Could not find freq.split\n");
-      exit(1);
-    }
-    if (index + 1 >= dict.n_tuple)
-      freq->next = freq->split;
-    else
-      freq->next = keys[index + 1];
-  }
-  /* free(dict.tuple); */
-  return freq;
-}
-
-void anonymize_strict(partition *part) {
-  int sum = 0;
-  for (int i = 0; i < part->n_allow; i++)
-    sum += part->allow[i];
-  if (!sum) {
-    add_partition(part);
-    return;
-  }
-  for (int i = 0; i < part->n_allow; i++) {
-    int dim = choose_dimension(part);
-    if (dim == -1) {
-      fprintf(stderr, "Error: dim = -1");
-      exit(1);
-    }
-    frequency *freq = find_median(part, dim);
-    if (freq->low != -1) {
-      part->low[dim] = dict_value(&qi.dict[dim], freq->low);
-      part->high[dim] = dict_value(&qi.dict[dim], freq->high);
-    }
-    if (freq->split == -1 || freq->split == freq->next) {
-      part->allow[dim] = 0;
-      continue;
-    }
-    int mean = dict_value(&qi.dict[dim], freq->split);
-    int *lhs_high = (int *)malloc(cfg.n_qid * sizeof(int));
-    int *rhs_low = (int *)malloc(cfg.n_qid * sizeof(int));
-    for (int j = 0; j < cfg.n_qid; j++) {
-      lhs_high[j] = part->high[j];
-      rhs_low[j] = part->low[j];
-    }
-    lhs_high[dim] = mean;
-    rhs_low[dim] = dict_value(&qi.dict[dim], freq->next);
-    partition lhs = {NULL, NULL, 0, NULL, 0, NULL};
-    partition_init(&lhs, NULL, 0, part->low, lhs_high);
-    partition rhs = {NULL, NULL, 0, NULL, 0, NULL};
-    partition_init(&rhs, NULL, 0, rhs_low, part->high);
-    for (int j = 0; j < part->n_member; j++) {
-      int pos = dict_value(&qi.dict[dim], part->member[j][dim]);
-      if (pos <= mean)
-        add_to_partition(&lhs, part->member[j]);
-      else
-        add_to_partition(&rhs, part->member[j]);
-    }
-    if (lhs.n_member < GL_K || rhs.n_member < GL_K) {
-      part->allow[dim] = 0;
-      free(freq);
-      free(lhs_high);
-      free(rhs_low);
-      continue;
-    }
-    anonymize_strict(&lhs);
-    anonymize_strict(&rhs);
-    free(freq);
-    free(lhs_high);
-    free(rhs_low);
-    return;
-  }
-  add_partition(part);
-}
-
-void anonymize_relaxed(partition *part) {
-  int sum = 0;
-  for (int i = 0; i < part->n_allow; i++)
-    sum += part->allow[i];
-  if (!sum) {
-    add_partition(part);
-    return;
-  }
-  int dim = choose_dimension(part);
-  if (dim == -1) {
-    fprintf(stderr, "Error: dim = -1");
-    exit(1);
-  }
-  frequency *freq = find_median(part, dim);
-  if (freq->low != -1) {
-    part->low[dim] = dict_value(&qi.dict[dim], freq->low);
-    part->high[dim] = dict_value(&qi.dict[dim], freq->high);
-  }
-  if (freq->split == -1) {
-    part->allow[dim] = 0;
-    anonymize_relaxed(part);
-    return;
-  }
-  int mean = dict_value(&qi.dict[dim], freq->split);
-  int *lhs_high = (int *)malloc(cfg.n_qid * sizeof(int));
-  int *rhs_low = (int *)malloc(cfg.n_qid * sizeof(int));
-  for (int i = 0; i < cfg.n_qid; i++) {
-    lhs_high[i] = part->high[i];
-    rhs_low[i] = part->low[i];
-  }
-  lhs_high[dim] = mean;
-  rhs_low[dim] = dict_value(&qi.dict[dim], freq->next);
-  partition lhs = {NULL, NULL, 0, NULL, 0, NULL};
-  partition_init(&lhs, NULL, 0, part->low, lhs_high);
-  partition rhs = {NULL, NULL, 0, NULL, 0, NULL};
-  partition_init(&rhs, NULL, 0, rhs_low, part->high);
-  int **mid_set = NULL;
-  int n_mid = 0;
-  for (int i = 0; i < part->n_member; i++) {
-    int pos = dict_value(&qi.dict[dim], part->member[i][dim]);
-    if (pos < mean) {
-      add_to_partition(&lhs, part->member[i]);
-    } else if (pos > mean) {
-      add_to_partition(&rhs, part->member[i]);
-    } else {
-      add_to_list(&mid_set, &n_mid, part->member[i]);
-    }
-  }
-  int half_size = part->n_member / 2;
-  for (int i = half_size - lhs.n_member; i > 0; i--, n_mid--) {
-    add_to_partition(&lhs, mid_set[n_mid - 1]);
-  }
-  if (n_mid > 0) {
-    rhs.low[dim] = mean;
-    addn_to_partition(&rhs, n_mid, mid_set);
-  }
-  anonymize_relaxed(&lhs);
-  anonymize_relaxed(&rhs);
-  free(freq);
-  free(lhs_high);
-  free(rhs_low);
-}
-
 void mondrian() {
   mondrian_init();
   int *low = (int *)malloc(cfg.n_qid * sizeof(int));
@@ -282,6 +221,7 @@ void mondrian() {
     memcpy(data[i], qi.original[i], cfg.n_qid * sizeof(int));
   }
   partition_init(&part, data, subjs.n_subj, low, high);
+  store_in_created(&part);
 
   /* set up clock to calculate execution time */
   clock_t start;
@@ -341,4 +281,7 @@ void mondrian() {
   for (int i = 0; i < subjs.n_subj; i++)
     free(data[i]);
   free(data);
+  free(low);
+  free(high);
+  free_partition(&part);
 }

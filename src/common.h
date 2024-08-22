@@ -42,6 +42,7 @@ typedef struct {
 } quasi;
 
 typedef struct {
+  int id;
   int *low;
   int *high;
   int n_member;
@@ -54,6 +55,11 @@ typedef struct {
   int n_part;
   partition *part;
 } partitions;
+
+typedef struct {
+  int n_elem;
+  int *elements;
+} tracker;
 
 typedef struct {
   int split;
@@ -79,45 +85,34 @@ extern config cfg;
 extern subjects subjs;
 extern quasi qi;
 extern partitions parts;
-
-int string_in_list(char **, int, char *);
-
-int int_in_list(int *, int, int);
-
-void add_to_partition(partition *, int *);
-
-void addn_to_partition(partition *, int, int **);
-
-void add_to_list(int ***, int *, int *);
-
-void add_partition(partition *);
-
-double normalized_width(partition *, int);
+extern tracker added;
+extern tracker freed;
+extern partitions created;
 
 void parse_dataset();
-
+void partition_init(partition *, int **, int, int *, int *);
+void store_in_created(partition *);
+void store_in_parts(partition *);
+void add_to_partition(partition *, int *);
+void addn_to_partition(partition *, int, int **);
+void add_to_list(int ***, int *, int *);
+double normalized_width(partition *, int);
+frequency *find_median(partition *, int);
+int choose_dimension(partition *);
 int compare(const void *, const void *);
-
-void free_mem();
-
+int string_in_list(char **, int, char *);
+int int_in_list(int *, int, int);
 void dict_value_inc(dictionary *, int);
-
 int dict_sum(dictionary *);
-
 int dict_value(dictionary *, int);
-
 int * dict_keys(dictionary *);
-
 double power(double, int);
-
 range * range_categories(int, int, int);
-
 char * deanonymized_range(int, int, int);
-
 char * anonymized_range(int, int, int);
-
 void write_to_file(char ***);
-
 void usage(int);
+void free_partition(partition *);
+void free_mem();
 
 #endif
